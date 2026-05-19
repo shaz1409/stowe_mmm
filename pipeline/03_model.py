@@ -5,7 +5,7 @@
 #   python 03_model.py --model robyn
 #   python 03_model.py --model meridian
 #
-# Inputs:  data/mmm_ready.csv, data/selected_features.txt
+# Inputs:  data/processed/mmm_ready.csv, data/processed/selected_features.txt
 # Outputs: outputs/robyn/  or  outputs/meridian/
 
 import argparse
@@ -13,8 +13,8 @@ import pandas as pd
 from models import robyn_model, meridian_model
 
 def load_inputs() -> tuple[pd.DataFrame, list[str]]:
-    df = pd.read_csv("data/mmm_ready.csv", parse_dates=["date"])
-    with open("data/selected_features.txt") as f:
+    df = pd.read_csv("data/processed/mmm_ready.csv", parse_dates=["date"])
+    with open("data/processed/selected_features.txt") as f:
         features = f.read().splitlines()
     return df, features
 

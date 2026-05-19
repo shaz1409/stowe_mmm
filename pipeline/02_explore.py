@@ -16,7 +16,7 @@
 import pandas as pd
 
 def load_data() -> pd.DataFrame:
-    return pd.read_csv("data/mmm_ready.csv", parse_dates=["date"])
+    return pd.read_csv("data/processed/mmm_ready.csv", parse_dates=["date"])
 
 def run_eda(df: pd.DataFrame):
     """Summary stats, plots, correlation matrix."""
@@ -30,7 +30,7 @@ def main():
     df = load_data()
     run_eda(df)
     features = select_features(df)
-    with open("data/selected_features.txt", "w") as f:
+    with open("data/processed/selected_features.txt", "w") as f:
         f.write("\n".join(features))
     print(f"Selected {len(features)} features.")
 

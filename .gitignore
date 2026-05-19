@@ -7,10 +7,8 @@ outputs/robyn/*
 !outputs/robyn/.gitkeep
 outputs/meridian/*
 !outputs/meridian/.gitkeep
-
-# Power BI exports
-powerbi/*
-!powerbi/.gitkeep
+outputs/powerbi/*
+!outputs/powerbi/.gitkeep
 
 # Python
 __pycache__/
