@@ -41,6 +41,12 @@ META_FIELDS = [
     "video_p100_watched_actions",
 ]
 
+# Supported geo breakdowns for fetch(). Meta returns the value as a plain string.
+# "region" → broad UK region (England, Scotland, Wales, Northern Ireland)
+# "city"   → city level (London, Manchester, etc.) — sparse for smaller markets
+# "country" → country only, useful as a sanity check
+GEO_BREAKDOWNS = ("region", "city", "country")
+
 # --- Auth --------------------------------------------------------------------
 
 def authenticate():
@@ -55,12 +61,13 @@ def authenticate():
 
 # --- Fetch -------------------------------------------------------------------
 
-def _fetch_month(account, month_start: date, month_end: date, level: str) -> list:
+def _fetch_month(account, month_start: date, month_end: date, level: str, geo_breakdown: str) -> list:
     """Pull one month of insights, handling cursor pagination."""
     params = {
         "time_range": {"since": str(month_start), "until": str(month_end)},
         "time_increment": 1,
         "level": level,
+        "breakdowns": [geo_breakdown],
         "limit": 500,
     }
     cursor = account.get_insights(fields=META_FIELDS, params=params)
@@ -72,11 +79,17 @@ def _fetch_month(account, month_start: date, month_end: date, level: str) -> lis
     return rows
 
 
-def fetch_insights(start: str, end: str, level: str = "campaign") -> pd.DataFrame:
+def fetch_insights(start: str, end: str, level: str = "campaign", geo_breakdown: str = "region") -> pd.DataFrame:
     """
     Pull daily ad insights from META_AD_ACCOUNT for the given date range.
     Chunks requests monthly to avoid Meta's data size limits.
+
+    Args:
+        geo_breakdown: one of GEO_BREAKDOWNS ("region", "city", "country")
     """
+    if geo_breakdown not in GEO_BREAKDOWNS:
+        raise ValueError(f"geo_breakdown must be one of {GEO_BREAKDOWNS}, got '{geo_breakdown}'")
+
     account   = AdAccount(META_AD_ACCOUNT)
     cursor    = date.fromisoformat(start)
     end_date  = date.fromisoformat(end)
@@ -84,8 +97,8 @@ def fetch_insights(start: str, end: str, level: str = "campaign") -> pd.DataFram
 
     while cursor <= end_date:
         month_end = min(cursor + relativedelta(months=1) - relativedelta(days=1), end_date)
-        print(f"  Fetching {cursor} → {month_end}")
-        all_rows.extend(_fetch_month(account, cursor, month_end, level))
+        print(f"  Fetching {cursor} → {month_end} [{geo_breakdown}]")
+        all_rows.extend(_fetch_month(account, cursor, month_end, level, geo_breakdown))
         cursor += relativedelta(months=1)
 
     return pd.DataFrame(all_rows)
@@ -101,17 +114,21 @@ def _extract_actions(actions_list: list | float, action_type: str) -> int:
     return 0
 
 
-def normalise(raw: pd.DataFrame) -> pd.DataFrame:
+def normalise(raw: pd.DataFrame, geo_breakdown: str = "region") -> pd.DataFrame:
     """
     Normalise raw Meta insights to the standard MMM schema.
     Actions (conversions, leads) are unpacked from Meta's nested list format.
+    Outputs both region and city columns; the one matching geo_breakdown is populated,
+    the other is None.
     """
     if raw.empty:
         return pd.DataFrame()
 
     df = raw.rename(columns={"date_start": "date", "campaign_name": "campaign"})
-    df["date"]      = pd.to_datetime(df["date"])
-    df["channel"]   = "meta"
+    df["date"]    = pd.to_datetime(df["date"])
+    df["channel"] = "meta"
+    df["region"]  = df[geo_breakdown] if geo_breakdown == "region" and "region" in df.columns else None
+    df["city"]    = df[geo_breakdown] if geo_breakdown == "city"   and "city"   in df.columns else None
     df["spend"]     = df["spend"].astype(float)
     df["impressions"] = df["impressions"].astype(int)
     df["clicks"]    = df["clicks"].astype(int)
@@ -137,7 +154,7 @@ def normalise(raw: pd.DataFrame) -> pd.DataFrame:
         df[col] = df[field].apply(lambda x: int(float(x[0]["value"])) if isinstance(x, list) and x else 0)
 
     return df[[
-        "date", "channel", "campaign", "objective",
+        "date", "channel", "region", "city", "campaign", "objective",
         "spend", "impressions", "clicks", "outbound_clicks", "reach", "frequency",
         "leads", "conversions", "form_submissions",
         "video_views_25", "video_views_75", "video_views_100",
@@ -146,8 +163,8 @@ def normalise(raw: pd.DataFrame) -> pd.DataFrame:
 
 # --- Main --------------------------------------------------------------------
 
-def fetch(start: str, end: str) -> pd.DataFrame:
+def fetch(start: str, end: str, geo_breakdown: str = "region") -> pd.DataFrame:
     """Entry point called by 01_data_prep.py. Returns normalised daily DataFrame."""
     authenticate()
-    raw = fetch_insights(start, end)
-    return normalise(raw)
+    raw = fetch_insights(start, end, geo_breakdown=geo_breakdown)
+    return normalise(raw, geo_breakdown=geo_breakdown)

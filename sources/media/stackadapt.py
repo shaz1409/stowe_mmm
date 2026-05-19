@@ -1,4 +1,4 @@
-# sources/stackadapt.py
+# sources/media/stackadapt.py
 # Load StackAdapt data from a manually exported CSV.
 #
 # StackAdapt API token requires account manager setup — in the meantime,
@@ -7,7 +7,8 @@
 #
 # Export steps (StackAdapt UI):
 #   Campaigns -> select all -> Export -> CSV
-#   Columns to include: Date, Campaign, Spend, Impressions, Clicks
+#   Columns to include: Date, Campaign, Region, City, Spend, Impressions, Clicks
+#   (Region/City column names may differ — check the export UI and update COLUMN_MAP)
 #
 # Outputs a daily DataFrame in the standard MMM schema.
 
@@ -18,9 +19,12 @@ RAW_PATH = "data/raw/stackadapt_export.csv"
 
 # Map StackAdapt export column names to MMM schema.
 # Update keys here if StackAdapt changes its export headers.
+# Update the Region key if StackAdapt's export header differs (e.g. "Geographic Area").
 COLUMN_MAP = {
     "Date":        "date",
     "Campaign":    "campaign",
+    "Region":      "region",   # optional — include if available in export
+    "City":        "city",     # optional — include if available in export
     "Spend":       "spend",
     "Impressions": "impressions",
     "Clicks":      "clicks",
@@ -46,6 +50,8 @@ def fetch(start: str = None, end: str = None) -> pd.DataFrame:
 
     df["date"]        = pd.to_datetime(df["date"])
     df["channel"]     = "stackadapt"
+    df["region"]      = df["region"] if "region" in df.columns else None
+    df["city"]        = df["city"]   if "city"   in df.columns else None
     df["spend"]       = pd.to_numeric(df["spend"], errors="coerce")
     df["impressions"] = pd.to_numeric(df["impressions"], errors="coerce").astype("Int64")
     df["clicks"]      = pd.to_numeric(df["clicks"], errors="coerce").astype("Int64")
@@ -55,4 +61,4 @@ def fetch(start: str = None, end: str = None) -> pd.DataFrame:
     if end:
         df = df[df["date"] <= pd.to_datetime(end)]
 
-    return df[["date", "channel", "campaign", "spend", "impressions", "clicks"]]
+    return df[["date", "channel", "region", "city", "campaign", "spend", "impressions", "clicks"]]

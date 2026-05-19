@@ -16,24 +16,42 @@ from google.ads.googleads.client import GoogleAdsClient
 
 # --- Config ------------------------------------------------------------------
 
-GOOGLE_ADS_CUSTOMER_ID   = os.environ.get("GOOGLE_ADS_CUSTOMER_ID", "")
+GOOGLE_ADS_CUSTOMER_ID = os.environ.get("GOOGLE_ADS_CUSTOMER_ID", "")
 
+# geographic_view breaks metrics down by where users physically were (LOCATION_OF_PRESENCE).
+# country_criterion_id 2826 = United Kingdom — verify against your account if needed.
 GAQL = """
     SELECT
         segments.date,
         campaign.name,
         campaign.advertising_channel_type,
+        segments.geo_target_region,
         metrics.cost_micros,
         metrics.impressions,
         metrics.clicks,
         metrics.conversions,
         metrics.all_conversions,
         metrics.search_impression_share
-    FROM campaign
+    FROM geographic_view
     WHERE
         segments.date BETWEEN '{start}' AND '{end}'
         AND campaign.status != 'REMOVED'
+        AND geographic_view.country_criterion_id = 2826
+        AND geographic_view.location_type = 'LOCATION_OF_PRESENCE'
     ORDER BY segments.date ASC
+"""
+
+# Resolves geo target constant resource names to human-readable names for all UK
+# geo levels (Region, City, etc.) so city-targeted campaigns also get readable names.
+GEO_CONSTANT_QUERY = """
+    SELECT
+        geo_target_constant.resource_name,
+        geo_target_constant.name,
+        geo_target_constant.target_type
+    FROM geo_target_constant
+    WHERE
+        geo_target_constant.country_code = 'GB'
+        AND geo_target_constant.status = 'ENABLED'
 """
 
 # --- Auth --------------------------------------------------------------------
@@ -62,7 +80,22 @@ def get_client() -> GoogleAdsClient:
 
 # --- Fetch -------------------------------------------------------------------
 
-def _fetch_month(client: GoogleAdsClient, month_start: date, month_end: date) -> list:
+def _build_geo_map(client: GoogleAdsClient) -> dict[str, str]:
+    """
+    Build a resource_name -> name map for all UK geo constants (regions, cities, etc.).
+    Called once per fetch to avoid repeated API round-trips.
+    Falls back to the raw resource name for any unmapped constant.
+    """
+    service = client.get_service("GoogleAdsService")
+    stream  = service.search_stream(customer_id=GOOGLE_ADS_CUSTOMER_ID, query=GEO_CONSTANT_QUERY)
+    geo_map = {}
+    for batch in stream:
+        for row in batch.results:
+            geo_map[row.geo_target_constant.resource_name] = row.geo_target_constant.name
+    return geo_map
+
+
+def _fetch_month(client: GoogleAdsClient, month_start: date, month_end: date, geo_map: dict) -> list:
     """Run GAQL for a single month, return list of row dicts."""
     service = client.get_service("GoogleAdsService")
     query   = GAQL.format(start=month_start, end=month_end)
@@ -71,10 +104,13 @@ def _fetch_month(client: GoogleAdsClient, month_start: date, month_end: date) ->
     rows = []
     for batch in stream:
         for row in batch.results:
+            raw_geo = str(row.segments.geo_target_region)
             rows.append({
                 "date":                    str(row.segments.date),
                 "campaign":                row.campaign.name,
                 "channel_type":            str(row.campaign.advertising_channel_type.name),
+                "region":                  geo_map.get(raw_geo, raw_geo),
+                "city":                    None,
                 "cost_micros":             row.metrics.cost_micros,
                 "impressions":             row.metrics.impressions,
                 "clicks":                  row.metrics.clicks,
@@ -87,20 +123,21 @@ def _fetch_month(client: GoogleAdsClient, month_start: date, month_end: date) ->
 
 def fetch_campaign_report(client: GoogleAdsClient, start: str, end: str) -> pd.DataFrame:
     """
-    Pull daily campaign report chunked monthly to avoid query limits.
+    Pull daily geographic campaign report chunked monthly to avoid query limits.
 
     Args:
         start: ISO date string, e.g. "2023-01-01"
         end:   ISO date string, e.g. "2023-12-31"
     """
-    cursor   = date.fromisoformat(start)
-    end_date = date.fromisoformat(end)
-    all_rows = []
+    geo_map = _build_geo_map(client)
+    cursor     = date.fromisoformat(start)
+    end_date   = date.fromisoformat(end)
+    all_rows   = []
 
     while cursor <= end_date:
         month_end = min(cursor + relativedelta(months=1) - relativedelta(days=1), end_date)
         print(f"  Fetching {cursor} -> {month_end}")
-        all_rows.extend(_fetch_month(client, cursor, month_end))
+        all_rows.extend(_fetch_month(client, cursor, month_end, geo_map))
         cursor += relativedelta(months=1)
 
     return pd.DataFrame(all_rows)
@@ -108,8 +145,8 @@ def fetch_campaign_report(client: GoogleAdsClient, start: str, end: str) -> pd.D
 
 def normalise(raw: pd.DataFrame) -> pd.DataFrame:
     """
-    Normalise raw Google Ads report to the standard MMM schema:
-      date | channel | campaign | channel_type | spend | impressions | clicks |
+    Normalise raw Google Ads geographic report to the standard MMM schema:
+      date | channel | region | campaign | channel_type | spend | impressions | clicks |
       conversions | all_conversions | search_impression_share
     """
     if raw.empty:
@@ -126,7 +163,7 @@ def normalise(raw: pd.DataFrame) -> pd.DataFrame:
     df["search_impression_share"] = pd.to_numeric(df["search_impression_share"], errors="coerce")
 
     return df[[
-        "date", "channel", "campaign", "channel_type",
+        "date", "channel", "region", "city", "campaign", "channel_type",
         "spend", "impressions", "clicks",
         "conversions", "all_conversions", "search_impression_share",
     ]]

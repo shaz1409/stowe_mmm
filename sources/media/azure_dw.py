@@ -1,13 +1,10 @@
-# sources/azure_dw.py
-# Pull data from Stowe's Azure Data Warehouse.
-#
-# Sources:
-#   - Clef quality leads (KPI) — daily leads by region
-#   - Any additional first-party data available in the DW
+# sources/media/azure_dw.py
+# Pull enquiry/KPI data from Stowe's Azure Data Warehouse (Clef lead system).
 #
 # Outputs:
-#   - kpi DataFrame: date | region | quality_leads
-#   - (extend with additional tables as schema becomes known)
+#   - national daily quality leads  (default MMM KPI)
+#   - regional daily quality leads  (for regional modelling)
+#   - daily leads by enquiry type   (for product-split modelling)
 #
 # Requires:
 #   pip install pyodbc pandas sqlalchemy
@@ -28,27 +25,41 @@ AZURE_USERNAME = os.environ.get("AZURE_USERNAME", "")
 AZURE_PASSWORD = os.environ.get("AZURE_PASSWORD", "")
 
 # --- Table/view names --------------------------------------------------------
-# Update these once the DW schema is confirmed with Stowe's data team
+# Confirm actual names against DW schema with Stowe's data team
 
-CLEF_TABLE = "clef.quality_leads"   # placeholder — confirm actual table name
+CLEF_TABLE = "clef.quality_leads"   # placeholder — confirm actual table/view name
 
-# --- Queries -----------------------------------------------------------------
+# --- Expected schema ---------------------------------------------------------
+# Columns we anticipate in CLEF_TABLE. Used by validate_schema() to catch
+# mismatches early rather than surfacing confusing pandas errors downstream.
+# Update keys here once the DW schema is confirmed; add/remove columns as needed.
 
+CLEF_EXPECTED_COLUMNS = {
+    "enquiry_date":    "datetime64[ns]",  # date of enquiry
+    "region":          "object",          # UK region (e.g. "North West", "South East")
+    "enquiry_type":    "object",          # divorce | child_arrangements | financial_remedy | cohabitation | other
+    "lead_source":     "object",          # web_form | phone | chat | referral | other
+    "is_quality_lead": "int64",           # 1 = quality lead, 0 = not
+    "office":          "object",          # specific Stowe office name — confirm granularity
+}
+
+# --- Query -------------------------------------------------------------------
+
+# Pulls one row per enquiry so Python handles all aggregation.
+# Confirmed column names may differ — update SELECT aliases to match.
 CLEF_QUERY = """
     SELECT
-        enquiry_date    AS date,
+        enquiry_date,
         region,
-        COUNT(*)        AS quality_leads
+        enquiry_type,
+        lead_source,
+        is_quality_lead,
+        office
     FROM {table}
     WHERE
         enquiry_date BETWEEN :start AND :end
-        AND is_quality_lead = 1
-    GROUP BY
-        enquiry_date,
-        region
     ORDER BY
-        enquiry_date ASC,
-        region ASC
+        enquiry_date ASC
 """
 
 # --- Connection --------------------------------------------------------------
@@ -79,18 +90,25 @@ def get_engine():
     return create_engine(conn_str)
 
 
+# --- Schema validation -------------------------------------------------------
+
+def validate_schema(df: pd.DataFrame) -> None:
+    """
+    Raise ValueError if any expected columns are missing from the query result.
+    Call this immediately after fetching raw data, before any aggregation.
+    """
+    missing = set(CLEF_EXPECTED_COLUMNS) - set(df.columns)
+    if missing:
+        raise ValueError(
+            f"Azure DW schema mismatch — expected columns not found: {sorted(missing)}. "
+            f"Update CLEF_EXPECTED_COLUMNS or the SELECT in CLEF_QUERY to match the actual DW schema."
+        )
+
+
 # --- Fetch -------------------------------------------------------------------
 
-def fetch_clef(start: str, end: str) -> pd.DataFrame:
-    """
-    Pull daily quality leads from Clef by region.
-
-    Returns:
-        date | region | quality_leads
-
-    Note: column names, table name, and filter logic (is_quality_lead)
-    need confirming against the actual DW schema.
-    """
+def _fetch_raw(start: str, end: str) -> pd.DataFrame:
+    """Pull raw unaggregated Clef rows and validate schema."""
     from sqlalchemy import text
 
     engine = get_engine()
@@ -99,35 +117,66 @@ def fetch_clef(start: str, end: str) -> pd.DataFrame:
     with engine.connect() as conn:
         df = pd.read_sql(text(query), conn, params={"start": start, "end": end})
 
-    df["date"]          = pd.to_datetime(df["date"])
-    df["quality_leads"] = df["quality_leads"].astype(int)
+    validate_schema(df)
+
+    df["enquiry_date"]    = pd.to_datetime(df["enquiry_date"])
+    df["is_quality_lead"] = df["is_quality_lead"].astype(int)
 
     return df
 
 
+def fetch_clef(start: str, end: str) -> pd.DataFrame:
+    """
+    Daily quality leads by region.
+
+    Returns: date | region | quality_leads
+    """
+    df = _fetch_raw(start, end)
+    return (
+        df[df["is_quality_lead"] == 1]
+        .groupby(["enquiry_date", "region"], as_index=False)
+        .size()
+        .rename(columns={"enquiry_date": "date", "size": "quality_leads"})
+    )
+
+
 def fetch_clef_national(start: str, end: str) -> pd.DataFrame:
     """
-    Aggregate Clef leads to national level (sum across regions).
-    Use this as the MMM KPI when modelling nationally.
+    Daily quality leads aggregated nationally.
+    Default MMM KPI — swap for fetch_clef() if regional modelling is needed.
+
+    Returns: date | kpi_quality_leads
     """
-    df = fetch_clef(start, end)
+    df = _fetch_raw(start, end)
     return (
-        df.groupby("date", as_index=False)["quality_leads"]
-        .sum()
-        .rename(columns={"quality_leads": "kpi_quality_leads"})
+        df[df["is_quality_lead"] == 1]
+        .groupby("enquiry_date", as_index=False)
+        .size()
+        .rename(columns={"enquiry_date": "date", "size": "kpi_quality_leads"})
+    )
+
+
+def fetch_clef_by_enquiry_type(start: str, end: str) -> pd.DataFrame:
+    """
+    Daily quality leads split by enquiry type.
+    Useful for product-level MMM or as a segmentation check.
+
+    Returns: date | enquiry_type | quality_leads
+
+    Expected enquiry_type values (confirm with Stowe's data team):
+      divorce | child_arrangements | financial_remedy | cohabitation | other
+    """
+    df = _fetch_raw(start, end)
+    return (
+        df[df["is_quality_lead"] == 1]
+        .groupby(["enquiry_date", "enquiry_type"], as_index=False)
+        .size()
+        .rename(columns={"enquiry_date": "date", "size": "quality_leads"})
     )
 
 
 # --- Main --------------------------------------------------------------------
 
 def fetch(start: str, end: str) -> pd.DataFrame:
-    """
-    Entry point called by 01_data_prep.py.
-    Returns national daily quality leads as the MMM KPI.
-    Swap for fetch_clef() if regional modelling is needed later.
-    """
-    raise NotImplementedError(
-        "Azure DW credentials not yet configured. "
-        "Set AZURE_CONNECTION_STRING (or individual components) in .env "
-        "and confirm table/column names against the DW schema."
-    )
+    """Entry point called by 01_data_prep.py. Returns national daily quality leads."""
+    return fetch_clef_national(start, end)

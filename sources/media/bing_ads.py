@@ -31,11 +31,15 @@ BING_ENVIRONMENT     = "production"
 BING_POLL_INTERVAL   = 5    # seconds between report status checks
 BING_POLL_MAX_TRIES  = 60   # max poll attempts before timeout
 
-# Columns to request in the campaign performance report
+# UserLocationPerformanceReportRequest breaks metrics down by physical user location.
+# State maps to UK region (e.g. "England", "Scotland") — verify actual values against reports.
 BING_REPORT_COLUMNS = [
     "TimePeriod",
     "CampaignName",
     "CampaignType",
+    "Country",
+    "State",   # UK region
+    "City",    # city level
     "Spend",
     "Impressions",
     "Clicks",
@@ -84,9 +88,9 @@ def _build_report_request(auth: AuthorizationData, start: str, end: str):
         environment=BING_ENVIRONMENT,
     )
 
-    request = reporting_service.factory.create("CampaignPerformanceReportRequest")
+    request = reporting_service.factory.create("UserLocationPerformanceReportRequest")
     request.Format          = "Csv"
-    request.ReportName      = "MMM_Campaign_Report"
+    request.ReportName      = "MMM_Geo_Report"
     request.ReturnOnlyCompleteData = False
     request.Aggregation     = "Daily"
 
@@ -108,8 +112,8 @@ def _build_report_request(auth: AuthorizationData, start: str, end: str):
     time_period.CustomDateRangeEnd   = end_date_obj
     request.Time = time_period
 
-    columns = reporting_service.factory.create("ArrayOfCampaignPerformanceReportColumn")
-    columns.CampaignPerformanceReportColumn = BING_REPORT_COLUMNS
+    columns = reporting_service.factory.create("ArrayOfUserLocationPerformanceReportColumn")
+    columns.UserLocationPerformanceReportColumn = BING_REPORT_COLUMNS
     request.Columns = columns
 
     return reporting_service, request
@@ -173,6 +177,8 @@ def normalise(raw: pd.DataFrame) -> pd.DataFrame:
         "TimePeriod":     "date",
         "CampaignName":   "campaign",
         "CampaignType":   "channel_type",
+        "State":          "region",
+        "City":           "city",
         "Spend":          "spend",
         "Impressions":    "impressions",
         "Clicks":         "clicks",
@@ -180,16 +186,18 @@ def normalise(raw: pd.DataFrame) -> pd.DataFrame:
         "AllConversions": "all_conversions",
     })
 
-    df["date"]           = pd.to_datetime(df["date"])
-    df["channel"]        = "bing_ads"
-    df["spend"]          = pd.to_numeric(df["spend"], errors="coerce")
-    df["impressions"]    = pd.to_numeric(df["impressions"], errors="coerce").astype("Int64")
-    df["clicks"]         = pd.to_numeric(df["clicks"], errors="coerce").astype("Int64")
-    df["conversions"]    = pd.to_numeric(df["conversions"], errors="coerce")
-    df["all_conversions"]= pd.to_numeric(df["all_conversions"], errors="coerce")
+    df = df[df["Country"] == "United Kingdom"]
+
+    df["date"]            = pd.to_datetime(df["date"])
+    df["channel"]         = "bing_ads"
+    df["spend"]           = pd.to_numeric(df["spend"], errors="coerce")
+    df["impressions"]     = pd.to_numeric(df["impressions"], errors="coerce").astype("Int64")
+    df["clicks"]          = pd.to_numeric(df["clicks"], errors="coerce").astype("Int64")
+    df["conversions"]     = pd.to_numeric(df["conversions"], errors="coerce")
+    df["all_conversions"] = pd.to_numeric(df["all_conversions"], errors="coerce")
 
     return df[[
-        "date", "channel", "campaign", "channel_type",
+        "date", "channel", "region", "city", "campaign", "channel_type",
         "spend", "impressions", "clicks", "conversions", "all_conversions",
     ]]
 
