@@ -1,0 +1,25 @@
+# Core
+pandas
+requests
+
+python-dotenv       # load .env credentials
+pyodbc              # Azure SQL / ODBC connection
+sqlalchemy          # DB engine abstraction
+
+# Platform connectors
+facebook-business   # Meta Marketing API
+google-ads          # Google Ads API
+bingads             # Microsoft Advertising (Bing Ads) API
+requests            # control variable APIs
+
+# Control variables
+pandasdmx       # OECD SDMX-JSON API
+lxml            # BoE HTML parsing
+pytrends        # Google Trends (unofficial)
+
+# Modelling
+google-meridian # Google's Bayesian MMM framework
+rpy2            # R bridge for Meta's Robyn (requires R + Robyn R package installed)
+
+# Evaluation / export
+# (add as needed once model backends are implemented)

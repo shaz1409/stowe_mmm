@@ -1,0 +1,23 @@
+# Data — never commit raw or processed data
+data/*
+!data/.gitkeep
+
+# Model outputs
+outputs/robyn/*
+!outputs/robyn/.gitkeep
+outputs/meridian/*
+!outputs/meridian/.gitkeep
+
+# Power BI exports
+powerbi/*
+!powerbi/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Secrets — never commit
+.env
+secrets.py
