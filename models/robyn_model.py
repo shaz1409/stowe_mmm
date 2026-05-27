@@ -142,13 +142,17 @@ def _run_robyn_in_r(df_fit: pd.DataFrame, spend_cols: list[str], control_cols: l
     print(f"  [robyn] Running trials={cfg['trials']} × iterations={cfg['iterations']} "
           f"on {n_cores} core(s) ...")
 
+    # Enable Robyn's internal train/test split when an OOT window is configured.
+    # Robyn treats ts_validation as a further hold-out on top of any external split.
+    use_ts_validation = bool(features.get("oot_weeks", 0) > 0)
+
     output_models = ro.r["robyn_run"](
         InputCollect  = input_collect,
         trials        = cfg["trials"],
         iterations    = cfg["iterations"],
         seed          = cfg["seed"],
         cores         = n_cores,
-        ts_validation = False,
+        ts_validation = use_ts_validation,
     )
 
     # ── robyn_outputs ──
@@ -165,22 +169,24 @@ def _run_robyn_in_r(df_fit: pd.DataFrame, spend_cols: list[str], control_cols: l
         export        = True,
     )
 
-    # ── Extract best model ID ──
-    # Try selectID first; fall back to first allSolutions entry
-    best_model_id = None
-    try:
-        sid = output_collect.rx2("selectID")
-        if str(type(sid)) != "<class 'rpy2.rinterface_lib.sexp.NULLType'>":
-            best_model_id = str(sid[0])
-    except Exception:
-        pass
+    # ── Build pareto_summary.csv + generate one-pagers for top candidates ──
+    best_model_id = _build_pareto_summary_and_onepagers(
+        input_collect, output_collect, outdir, top_n=20
+    )
+    if not best_model_id:
+        # Fall back: try selectID then allSolutions
+        try:
+            sid = output_collect.rx2("selectID")
+            if str(type(sid)) != "<class 'rpy2.rinterface_lib.sexp.NULLType'>":
+                best_model_id = str(sid[0])
+        except Exception:
+            pass
     if not best_model_id:
         try:
-            solutions = output_collect.rx2("allSolutions")
-            best_model_id = str(solutions[0])
+            best_model_id = str(output_collect.rx2("allSolutions")[0])
         except Exception:
-            best_model_id = "trial1_1_1"  # Robyn default naming convention
-    print(f"  [robyn] Best model: {best_model_id}")
+            best_model_id = "trial1_1_1"
+    print(f"  [robyn] Default model (best NRMSE): {best_model_id}")
 
     # ── Read Robyn CSV outputs back into Python ──
     # Robyn writes pareto_aggregated.csv, pareto_hyperparameters.csv, etc. to plot_folder
@@ -200,6 +206,63 @@ def _run_robyn_in_r(df_fit: pd.DataFrame, spend_cols: list[str], control_cols: l
         print(f"  [robyn] robyn_write skipped ({e})")
 
     return metrics
+
+
+# ── Pareto summary + one-pagers ───────────────────────────────────────────────
+
+def _build_pareto_summary_and_onepagers(
+    input_collect, output_collect, outdir: str, top_n: int = 20
+) -> str | None:
+    """
+    1. Find pareto_clusters.csv in the Robyn subdirectory.
+    2. Rank all solutions by NRMSE; write pareto_summary.csv.
+    3. Call robyn_onepagers() for the top_n solutions.
+    4. Return the best (lowest NRMSE) solID.
+    """
+    import rpy2.robjects as ro
+
+    # Locate pareto_clusters.csv (Robyn writes it to a timestamped subdir)
+    clusters_path = None
+    for root, dirs, files in os.walk(outdir):
+        for fname in files:
+            if ("pareto_clusters" in fname and fname.endswith(".csv")
+                    and "detail" not in fname and "wss" not in fname and "_ci" not in fname):
+                clusters_path = os.path.join(root, fname)
+                break
+        if clusters_path:
+            break
+
+    if not clusters_path:
+        print("  [robyn] pareto_clusters.csv not found — skipping one-pager generation")
+        return None
+
+    clusters = pd.read_csv(clusters_path)
+    if "solID" not in clusters.columns or "nrmse" not in clusters.columns:
+        return None
+
+    ranked = clusters.sort_values("nrmse").reset_index(drop=True)
+    summary_path = os.path.join(os.path.dirname(clusters_path), "pareto_summary.csv")
+    ranked.to_csv(summary_path, index=False)
+
+    best_sol = str(ranked["solID"].iloc[0])
+    top_sols  = ranked["solID"].head(top_n).tolist()
+
+    print(f"  [robyn] {len(ranked)} Pareto solutions found. "
+          f"Top {len(top_sols)} selected for one-pagers.")
+    print(f"  [robyn] Generating one-pagers (this may take a minute) ...")
+    try:
+        ro.r["robyn_onepagers"](
+            InputCollect  = input_collect,
+            OutputCollect = output_collect,
+            select_model  = ro.StrVector(top_sols),
+            export        = True,
+            plot_folder   = outdir,
+        )
+        print(f"  [robyn] One-pagers saved → {outdir}/")
+    except Exception as e:
+        print(f"  [robyn] robyn_onepagers failed ({e}) — one-pagers skipped")
+
+    return best_sol
 
 
 # ── Output extraction ─────────────────────────────────────────────────────────

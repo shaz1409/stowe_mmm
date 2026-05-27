@@ -66,14 +66,20 @@ def _load_roi(model_dir: str) -> pd.DataFrame:
 
 def compare_fit_metrics(cards: dict[str, dict]) -> pd.DataFrame:
     rows = []
+    has_oot = any(c.get("oot_r2") is not None for c in cards.values())
     for model, card in cards.items():
-        rows.append({
+        row: dict = {
             "model":     model,
             "r_squared": card.get("r_squared"),
             "mape_pct":  card.get("mape_pct"),
             "mae":       card.get("mae"),
             "n_obs":     card.get("n_obs"),
-        })
+        }
+        if has_oot:
+            row["oot_r2"]    = card.get("oot_r2")
+            row["oot_mape"]  = card.get("oot_mape")
+            row["oot_weeks"] = card.get("oot_weeks")
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -123,11 +129,28 @@ def run_publish_gate(
                 "manual review needed before client presentation"
             )
 
+    # OOT overfit check (advisory — does not fail the gate, surfaced as a warning)
+    oot_warnings = []
+    for _, row in fit_metrics.iterrows():
+        if row.get("oot_r2") is not None and row.get("r_squared") is not None:
+            gap = float(row["r_squared"]) - float(row["oot_r2"])
+            if gap > 0.20:
+                oot_warnings.append(
+                    f"{row['model']} in-sample/OOT R² gap = {gap:.2f} "
+                    f"(train {row['r_squared']:.3f} vs OOT {row['oot_r2']:.3f}) — possible overfit"
+                )
+
     if issues:
-        return False, "; ".join(issues), None
+        reason = "; ".join(issues)
+        if oot_warnings:
+            reason += "  [OOT advisory: " + "; ".join(oot_warnings) + "]"
+        return False, reason, None
 
     best = fit_metrics.sort_values("mape_pct").iloc[0]
-    return True, "All gate checks passed", str(best["model"])
+    reason = "All gate checks passed"
+    if oot_warnings:
+        reason += "  [OOT advisory: " + "; ".join(oot_warnings) + "]"
+    return True, reason, str(best["model"])
 
 
 # ── Symlink promotion ─────────────────────────────────────────────────────────

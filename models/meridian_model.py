@@ -260,6 +260,8 @@ def _response_curves_approx(channel_names, active, df_fit, roi_mean) -> pd.DataF
                 "spend_pct_of_mean": pct,
                 "weekly_spend_gbp":  round(w, 2),
                 "incremental_leads": round(roi_mean[i] * w, 4),
+                "ci_lo_90":          None,
+                "ci_hi_90":          None,
             })
     return pd.DataFrame(rows)
 

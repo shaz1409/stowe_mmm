@@ -173,6 +173,44 @@ def _maybe_rebuild_controls(refresh: bool) -> None:
         print(f"Control variables up-to-date ({age_h:.1f} h old, threshold 24 h).")
 
 
+# ── Calendar features ─────────────────────────────────────────────────────────
+
+def _add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add Stowe-specific calendar dummies that can't come from external data sources.
+
+    divorce_day    — first Monday of January each year.  Historically the single
+                     largest weekly inquiry spike for UK divorce solicitors; without
+                     an explicit dummy the model absorbs this into whichever channel
+                     was active that week, inflating its coefficient.
+
+    covid_lockdown — UK national lockdown 2020-03-23 → 2021-03-08.  A continuous
+                     4-quarter demand shock that Prophet's holiday component won't
+                     fully absorb; without a dummy, adstock decay estimates are
+                     contaminated across all channels active in this period.
+    """
+    df = df.copy()
+
+    # First Monday of January each year
+    divorce_mondays: set = set()
+    for year in range(df.index.min().year, df.index.max().year + 1):
+        jan1 = pd.Timestamp(year, 1, 1)
+        days_ahead = (0 - jan1.weekday()) % 7   # 0 = Monday; 0 if already Monday
+        divorce_mondays.add(jan1 + pd.Timedelta(days=days_ahead))
+    df["divorce_day"] = df.index.isin(divorce_mondays).astype(int)
+
+    # UK COVID lockdowns: first national lockdown → end of main legal restrictions
+    df["covid_lockdown"] = (
+        (df.index >= "2020-03-23") & (df.index <= "2021-03-08")
+    ).astype(int)
+
+    n_divorce = df["divorce_day"].sum()
+    n_covid   = df["covid_lockdown"].sum()
+    print(f"  Calendar dummies: divorce_day={n_divorce} weeks, covid_lockdown={n_covid} weeks")
+
+    return df
+
+
 # ── Assembly ──────────────────────────────────────────────────────────────────
 
 def build_modelling_table(
@@ -223,6 +261,9 @@ def build_modelling_table(
 
     df = pd.concat([kpi_aligned, media_aligned, ctrl_aligned], axis=1)
     df.index.name = "date"
+
+    # ── Calendar dummies (Divorce Day + COVID lockdown)
+    df = _add_calendar_features(df)
 
     # ── Column order
     ch_names     = [ch for ch, _ in MEDIA_MODULE_PATHS]

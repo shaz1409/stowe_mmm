@@ -261,6 +261,103 @@ def check_trailing_nan(df: pd.DataFrame):
     )
 
 
+def check_media_correlation(df: pd.DataFrame):
+    spend_cols = [c for c in df.columns if c.endswith("_spend")]
+    if len(spend_cols) < 2:
+        return ("MEDIA_CORRELATION", PASS, "Fewer than 2 spend columns — nothing to correlate")
+
+    corr = df[spend_cols].fillna(0).corr()
+    high_pairs = []
+    for i, c1 in enumerate(spend_cols):
+        for c2 in spend_cols[i + 1:]:
+            r = corr.loc[c1, c2]
+            if abs(r) > 0.70:
+                label = f"{c1.replace('_spend','')}↔{c2.replace('_spend','')} r={r:.2f}"
+                high_pairs.append(label)
+
+    if not high_pairs:
+        return ("MEDIA_CORRELATION", PASS, "No spend column pairs with |r| > 0.70")
+    return (
+        "MEDIA_CORRELATION", WARN,
+        "Correlated spend pairs (|r|>0.70) — shared budget cycles inflate apparent ROI for weaker channel: "
+        + "; ".join(high_pairs),
+    )
+
+
+def check_zero_runs(df: pd.DataFrame):
+    """Flag channels with long consecutive zero-spend streaks that contaminate adstock warmup."""
+    spend_cols = [c for c in df.columns if c.endswith("_spend")]
+    issues = []
+    for col in spend_cols:
+        s = (df[col].fillna(0) == 0).values
+        max_run, run = 0, 0
+        for v in s:
+            run = run + 1 if v else 0
+            max_run = max(max_run, run)
+        if max_run > 4:
+            issues.append(f"{col.replace('_spend','')}: {max_run} consecutive zero weeks")
+
+    if not issues:
+        return ("ZERO_RUNS", PASS, "No channel has >4 consecutive zero-spend weeks")
+    return (
+        "ZERO_RUNS", WARN,
+        "Long pauses reset adstock carry-over unrealistically — consider channel exclusion or "
+        "spend-floor imputation: " + "; ".join(issues),
+    )
+
+
+def check_structural_breaks(df: pd.DataFrame):
+    """
+    Check for the COVID demand shock and scan for any other non-COVID structural shift.
+    Also verifies that calendar dummies (divorce_day, covid_lockdown) are present.
+    """
+    kpi = df.get("quality_leads")
+    if kpi is None or kpi.isna().all():
+        return ("STRUCTURAL_BREAKS", WARN, "quality_leads not available — skipping break detection")
+
+    series = kpi.dropna()
+    n = len(series)
+    if n < 30:
+        return ("STRUCTURAL_BREAKS", WARN, f"Only {n} non-null KPI obs — need ≥30 for break detection")
+
+    issues = []
+
+    # ── Verify calendar dummies are present ──
+    for col in ("covid_lockdown", "divorce_day"):
+        if col not in df.columns:
+            issues.append(f"{col} column missing — re-run 01_data_prep.py")
+
+    # ── Chow-style mean-shift scan, excluding the COVID window ──
+    arr   = series.values
+    dates = series.index
+    covid_window = (dates >= "2020-03-23") & (dates <= "2021-03-08")
+    sigma = series.std()
+
+    best_shift, best_date = 0.0, None
+    for i in range(10, n - 10):
+        if covid_window[i]:
+            continue
+        left_mean  = arr[:i].mean()
+        right_mean = arr[i:].mean()
+        shift = abs(left_mean - right_mean) / (sigma + 1e-9)
+        if shift > best_shift:
+            best_shift = shift
+            best_date  = dates[i]
+
+    if best_date is not None and best_shift > 1.5:
+        issues.append(
+            f"Non-COVID mean shift ≈{best_shift:.1f}σ detected at {best_date.date()} "
+            f"— check for agency change, brand rebrand, or pricing event"
+        )
+
+    if not issues:
+        return (
+            "STRUCTURAL_BREAKS", PASS,
+            "divorce_day + covid_lockdown dummies present; no unexpected structural shift detected",
+        )
+    return ("STRUCTURAL_BREAKS", WARN, " | ".join(issues))
+
+
 # ── Schema drift ──────────────────────────────────────────────────────────────
 
 def _write_schema(df: pd.DataFrame) -> None:
@@ -316,11 +413,14 @@ def run_all_checks(df: pd.DataFrame, init_schema: bool = False) -> list[tuple]:
         check_numeric_types(df),
         check_schema_drift(df, init_schema=init_schema),
         check_channel_completeness(df),
+        check_zero_runs(df),
         check_high_missingness(df),
         check_outliers(df),
         check_trailing_nan(df),
+        check_media_correlation(df),
         check_vif(df),
         check_stationarity(df),
+        check_structural_breaks(df),
     ]
 
 
