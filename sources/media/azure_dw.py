@@ -1,10 +1,24 @@
 # sources/media/azure_dw.py
-# Pull enquiry/KPI data from Stowe's Azure Data Warehouse (Clef lead system).
+# Pull KPI and supporting data from Stowe's Azure Data Warehouse (Clef lead system).
 #
-# Outputs:
-#   - national daily quality leads  (default MMM KPI)
-#   - regional daily quality leads  (for regional modelling)
-#   - daily leads by enquiry type   (for product-split modelling)
+# Tables/views this module will pull once schema is confirmed with Stowe's data team:
+#
+#   1. Quality leads  (primary MMM KPI)
+#      Grain: one row per enquiry
+#      Key columns: enquiry_date, region, is_quality_lead, lead_source, enquiry_type, office
+#      Placeholder table name: clef.quality_leads  ← TODO confirm
+#
+#   2. Lead-to-instruction conversion  (secondary KPI / sense-check)
+#      Grain: one row per instruction, joinable to quality leads via enquiry_id
+#      Key columns: enquiry_id, enquiry_date, instruction_date, region
+#      Placeholder table name: clef.instructions  ← TODO confirm (may not exist)
+#
+#   3. Revenue by month  (model validation / £-per-lead calibration)
+#      Grain: monthly
+#      Key columns: month, new_instruction_revenue, new_instructions
+#      Placeholder table name: finance.monthly_revenue  ← TODO confirm (if shareable)
+#
+# See docs/data_request_stowe.md for the full data request sent to Stowe's data team.
 #
 # Requires:
 #   pip install pyodbc pandas sqlalchemy
@@ -25,9 +39,10 @@ AZURE_USERNAME = os.environ.get("AZURE_USERNAME", "")
 AZURE_PASSWORD = os.environ.get("AZURE_PASSWORD", "")
 
 # --- Table/view names --------------------------------------------------------
-# Confirm actual names against DW schema with Stowe's data team
+# All names are placeholders. Confirm against DW schema — see docs/data_request_stowe.md.
 
-CLEF_TABLE = "clef.quality_leads"   # placeholder — confirm actual table/view name
+CLEF_TABLE    = "clef.quality_leads"       # TODO: confirm actual table/view name
+REVENUE_TABLE = "finance.monthly_revenue"  # TODO: confirm — may not exist or may be named differently
 
 # --- Expected schema ---------------------------------------------------------
 # Columns we anticipate in CLEF_TABLE. Used by validate_schema() to catch
@@ -35,31 +50,48 @@ CLEF_TABLE = "clef.quality_leads"   # placeholder — confirm actual table/view 
 # Update keys here once the DW schema is confirmed; add/remove columns as needed.
 
 CLEF_EXPECTED_COLUMNS = {
-    "enquiry_date":    "datetime64[ns]",  # date of enquiry
-    "region":          "object",          # UK region (e.g. "North West", "South East")
-    "enquiry_type":    "object",          # divorce | child_arrangements | financial_remedy | cohabitation | other
-    "lead_source":     "object",          # web_form | phone | chat | referral | other
-    "is_quality_lead": "int64",           # 1 = quality lead, 0 = not
-    "office":          "object",          # specific Stowe office name — confirm granularity
+    # Column names are best-guess. Update once Stowe's data team confirms the schema.
+    # See docs/data_request_stowe.md for the full list of columns requested.
+    "enquiry_date":    "datetime64[ns]",  # TODO: confirm column name (may be "created_date", "received_date", etc.)
+    "region":          "object",          # TODO: confirm values — NUTS-1 or Stowe's own regional categorisation
+    "enquiry_type":    "object",          # TODO: confirm — may not exist; divorce | financial_remedy | children | other
+    "lead_source":     "object",          # TODO: confirm — may not exist; web_form | phone | chat | referral
+    "is_quality_lead": "int64",           # TODO: confirm column name and flag values (1/0 or True/False)
+    "office":          "object",          # TODO: confirm — may not exist at this grain
 }
 
 # --- Query -------------------------------------------------------------------
 
 # Pulls one row per enquiry so Python handles all aggregation.
-# Confirmed column names may differ — update SELECT aliases to match.
+# ALL column names are placeholders — update SELECT aliases once schema is confirmed.
+# See CLEF_EXPECTED_COLUMNS above and docs/data_request_stowe.md.
 CLEF_QUERY = """
     SELECT
-        enquiry_date,
-        region,
-        enquiry_type,
-        lead_source,
-        is_quality_lead,
-        office
+        enquiry_date,       -- TODO: confirm column name
+        region,             -- TODO: confirm column name and value set
+        enquiry_type,       -- TODO: confirm column name; omit if not available
+        lead_source,        -- TODO: confirm column name; omit if not available
+        is_quality_lead,    -- TODO: confirm column name and flag encoding
+        office              -- TODO: confirm column name; omit if not available
     FROM {table}
     WHERE
         enquiry_date BETWEEN :start AND :end
     ORDER BY
         enquiry_date ASC
+"""
+
+# Revenue query — only available if Stowe shares finance data (see data request, table 3).
+# Placeholder: confirm table name, column names, and date column type.
+REVENUE_QUERY = """
+    SELECT
+        month,                      -- TODO: confirm column name (first of month)
+        new_instruction_revenue,    -- TODO: confirm column name; may be total_revenue
+        new_instructions            -- TODO: confirm column name
+    FROM {table}
+    WHERE
+        month BETWEEN :start AND :end
+    ORDER BY
+        month ASC
 """
 
 # --- Connection --------------------------------------------------------------
@@ -175,8 +207,31 @@ def fetch_clef_by_enquiry_type(start: str, end: str) -> pd.DataFrame:
     )
 
 
+def fetch_revenue(start: str, end: str) -> pd.DataFrame:
+    """
+    Monthly revenue and new instruction count from the finance DW table.
+    Optional secondary KPI — used to validate the model's implied £/lead figure.
+
+    Returns: month | new_instruction_revenue | new_instructions
+
+    NOT IMPLEMENTED — requires:
+      1. Stowe to confirm the revenue table exists and is shareable (see docs/data_request_stowe.md)
+      2. REVENUE_TABLE and REVENUE_QUERY column names confirmed and updated above
+      3. DW credentials set in .env
+    """
+    raise NotImplementedError(
+        "Revenue data not yet available. "
+        "See docs/data_request_stowe.md (table 3) for the outstanding data request."
+    )
+
+
 # --- Main --------------------------------------------------------------------
 
 def fetch(start: str, end: str) -> pd.DataFrame:
     """Entry point called by 01_data_prep.py. Returns national daily quality leads."""
-    return fetch_clef_national(start, end)
+    raise NotImplementedError(
+        "Azure DW schema not yet confirmed with Stowe's data team. "
+        "See docs/data_request_stowe.md for the outstanding data request. "
+        "Once credentials and column names are confirmed: "
+        "remove this error and the function will delegate to fetch_clef_national()."
+    )

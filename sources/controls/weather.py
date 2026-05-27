@@ -1,4 +1,5 @@
 import os
+import requests
 import pandas as pd
 from config.dates import DATE_START, DATE_END
 
@@ -20,7 +21,34 @@ def fetch_open_meteo(start: str = DATE_START, end: str = DATE_END) -> pd.DataFra
     No API key required.
     Requires: requests  (pip install requests)
     """
-    raise NotImplementedError
+    print(f"  Fetching Open-Meteo weather ({start} → {end})")
+
+    params = {
+        "latitude":   OPEN_METEO_LAT,
+        "longitude":  OPEN_METEO_LON,
+        "start_date": start,
+        "end_date":   end,
+        "daily":      ",".join(OPEN_METEO_VARS),
+        "timezone":   "Europe/London",
+    }
+
+    resp = requests.get(OPEN_METEO_URL, params=params, timeout=60)
+    resp.raise_for_status()
+
+    data  = resp.json()
+    daily = data["daily"]
+
+    df = pd.DataFrame({
+        "date":                  pd.to_datetime(daily["time"]),
+        "temperature_2m_mean":   daily.get("temperature_2m_mean"),
+        "precipitation_sum":     daily.get("precipitation_sum"),
+    }).set_index("date")
+
+    df["temperature_2m_mean"] = pd.to_numeric(df["temperature_2m_mean"], errors="coerce")
+    df["precipitation_sum"]   = pd.to_numeric(df["precipitation_sum"],   errors="coerce")
+
+    df.index.name = "date"
+    return df
 
 
 def fetch_met_office(start: str = DATE_START, end: str = DATE_END) -> pd.DataFrame:

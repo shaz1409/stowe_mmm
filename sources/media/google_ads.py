@@ -156,8 +156,8 @@ def normalise(raw: pd.DataFrame) -> pd.DataFrame:
     df["date"]                    = pd.to_datetime(df["date"])
     df["channel"]                 = "google_ads"
     df["spend"]                   = df["cost_micros"] / 1_000_000
-    df["impressions"]             = df["impressions"].astype(int)
-    df["clicks"]                  = df["clicks"].astype(int)
+    df["impressions"]             = pd.to_numeric(df["impressions"], errors="coerce").astype("Int64")
+    df["clicks"]                  = pd.to_numeric(df["clicks"],      errors="coerce").astype("Int64")
     df["conversions"]             = df["conversions"].astype(float)
     df["all_conversions"]         = df["all_conversions"].astype(float)
     df["search_impression_share"] = pd.to_numeric(df["search_impression_share"], errors="coerce")

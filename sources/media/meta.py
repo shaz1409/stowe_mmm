@@ -19,10 +19,12 @@ from facebook_business.adobjects.adaccount import AdAccount
 
 # --- Config ------------------------------------------------------------------
 
-META_APP_ID       = os.environ["META_APP_ID"]
-META_APP_SECRET   = os.environ["META_APP_SECRET"]
-META_ACCESS_TOKEN = os.environ["META_ACCESS_TOKEN"]
-META_AD_ACCOUNT   = f"act_{os.environ['META_AD_ACCOUNT']}"
+# Use .get() so importing this module doesn't raise KeyError when creds aren't set.
+# Errors surface at authenticate() / fetch() time instead.
+META_APP_ID       = os.environ.get("META_APP_ID", "")
+META_APP_SECRET   = os.environ.get("META_APP_SECRET", "")
+META_ACCESS_TOKEN = os.environ.get("META_ACCESS_TOKEN", "")
+META_AD_ACCOUNT   = f"act_{os.environ.get('META_AD_ACCOUNT', '')}"
 META_API_VERSION  = "v19.0"
 
 META_FIELDS = [
@@ -129,11 +131,11 @@ def normalise(raw: pd.DataFrame, geo_breakdown: str = "region") -> pd.DataFrame:
     df["channel"] = "meta"
     df["region"]  = df[geo_breakdown] if geo_breakdown == "region" and "region" in df.columns else None
     df["city"]    = df[geo_breakdown] if geo_breakdown == "city"   and "city"   in df.columns else None
-    df["spend"]     = df["spend"].astype(float)
-    df["impressions"] = df["impressions"].astype(int)
-    df["clicks"]    = df["clicks"].astype(int)
-    df["reach"]     = df["reach"].astype(int)
-    df["frequency"] = df["frequency"].astype(float)
+    df["spend"]       = df["spend"].astype(float)
+    df["impressions"] = pd.to_numeric(df["impressions"], errors="coerce").astype("Int64")
+    df["clicks"]      = pd.to_numeric(df["clicks"],      errors="coerce").astype("Int64")
+    df["reach"]       = pd.to_numeric(df["reach"],       errors="coerce").astype("Int64")
+    df["frequency"]   = df["frequency"].astype(float)
 
     # outbound_clicks also comes back as a nested list
     df["outbound_clicks"] = df["outbound_clicks"].apply(

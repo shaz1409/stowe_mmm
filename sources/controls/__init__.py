@@ -16,7 +16,49 @@ def align_to_grain(sources: dict[str, pd.DataFrame | pd.Series], grain: str = TI
     Returns a single wide DataFrame indexed by period-start date.
     Trailing NaNs from publication lag are preserved — main() warns about them.
     """
-    raise NotImplementedError
+    target_index = pd.date_range(DATE_START, DATE_END, freq=grain)
+    aligned: list[pd.DataFrame] = []
+
+    for name, src in sources.items():
+        if isinstance(src, pd.Series):
+            src = src.to_frame()
+
+        if src.empty:
+            continue
+
+        freq = pd.infer_freq(src.index)
+
+        if freq and freq.startswith("M"):
+            # Monthly source: upsample then forward-fill so every week in a
+            # calendar month gets the month's published value
+            src = src.resample(grain).first().reindex(target_index).ffill()
+
+        elif freq and (freq.startswith("D") or freq == "B"):
+            # Daily source: aggregate to weekly grain
+            # Flags/counts → sum; continuous measures → mean
+            flag_cols = [c for c in src.columns if c.startswith("is_") or c.endswith("_count")]
+            cont_cols = [c for c in src.columns if c not in flag_cols]
+
+            parts = []
+            if flag_cols:
+                parts.append(src[flag_cols].resample(grain).sum())
+            if cont_cols:
+                parts.append(src[cont_cols].resample(grain).mean())
+
+            src = pd.concat(parts, axis=1).reindex(target_index)
+
+        else:
+            # Weekly or unknown: reindex to target grain and forward-fill small gaps
+            src = src.reindex(target_index).ffill(limit=4)
+
+        aligned.append(src)
+
+    if not aligned:
+        return pd.DataFrame(index=target_index)
+
+    result = pd.concat(aligned, axis=1)
+    result.index.name = "date"
+    return result
 
 
 def main():

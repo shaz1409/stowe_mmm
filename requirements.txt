@@ -10,16 +10,19 @@ sqlalchemy          # DB engine abstraction
 facebook-business   # Meta Marketing API
 google-ads          # Google Ads API
 bingads             # Microsoft Advertising (Bing Ads) API
-requests            # control variable APIs
 
 # Control variables
-pandasdmx       # OECD SDMX-JSON API
-lxml            # BoE HTML parsing
+python-dateutil # Easter date calculation in calendar.py (transitive via pandas, pinned explicitly)
 pytrends        # Google Trends (unofficial)
+lxml            # BoE HTML parsing (retained; pandasdmx removed — OECD now uses requests directly)
 
 # Modelling
 google-meridian # Google's Bayesian MMM framework
 rpy2            # R bridge for Meta's Robyn (requires R + Robyn R package installed)
 
-# Evaluation / export
+# Validation / evaluation
+statsmodels     # VIF, ADF stationarity tests (02_validate.py)
+pyyaml          # schema drift tracking (02_validate.py)
+
+# Export
 # (add as needed once model backends are implemented)

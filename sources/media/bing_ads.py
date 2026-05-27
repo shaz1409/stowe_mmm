@@ -98,8 +98,7 @@ def _build_report_request(auth: AuthorizationData, start: str, end: str):
     scope.AccountIds        = {"long": [int(BING_ACCOUNT_ID)]}
     request.Scope           = scope
 
-    time_period = reporting_service.factory.create("ReportTime")
-    custom_range = reporting_service.factory.create("ReportTimeRange")
+    time_period  = reporting_service.factory.create("ReportTime")
     start_date   = reporting_service.factory.create("Date")
     end_date_obj = reporting_service.factory.create("Date")
 

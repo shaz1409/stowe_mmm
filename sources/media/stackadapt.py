@@ -1,14 +1,24 @@
 # sources/media/stackadapt.py
 # Load StackAdapt data from a manually exported CSV.
 #
-# StackAdapt API token requires account manager setup — in the meantime,
-# export the campaign report manually from the StackAdapt UI and drop it in:
+# TODO (when API access is granted):
+#   1. Obtain API token from StackAdapt account manager; set STACKADAPT_API_TOKEN in .env
+#   2. Replace fetch() body with a REST call to:
+#        GET https://api.stackadapt.com/graphql  (GraphQL endpoint)
+#      or the equivalent REST reporting endpoint — confirm with StackAdapt docs.
+#   3. Map API response fields to COLUMN_MAP keys below.
+#   4. Remove RAW_PATH / FileNotFoundError logic.
+#   5. Add monthly chunking if the API has date-range limits.
+#
+# Until then: export the campaign report manually from the StackAdapt UI and drop it in:
 #   data/raw/stackadapt_export.csv
 #
 # Export steps (StackAdapt UI):
 #   Campaigns -> select all -> Export -> CSV
 #   Columns to include: Date, Campaign, Region, City, Spend, Impressions, Clicks
-#   (Region/City column names may differ — check the export UI and update COLUMN_MAP)
+#
+# COLUMN_MAP keys below are best-guess from StackAdapt's typical export format.
+# Verify column headers against an actual export and update keys here if they differ.
 #
 # Outputs a daily DataFrame in the standard MMM schema.
 
