@@ -133,13 +133,15 @@ def _extract_and_write(mmm, df_fit: pd.DataFrame, channel_names: list, active: l
     roi_rows = []
     for i, (ch, m) in enumerate(zip(channel_names, active)):
         total_spend = df_fit[m["col"]].fillna(0).sum()
-        incr        = float(roi_mean[i] * total_spend / 1_000)
-        cpa         = total_spend / incr if incr > 0 else None
+        # roi_mean[i] is leads per £; scale to leads per £k for reporting
+        roi_per_kgbp = float(roi_mean[i]) * 1_000
+        incr         = float(roi_mean[i] * total_spend)
+        cpa          = total_spend / incr if incr > 0 else None
         roi_rows.append({
             "channel":              ch,
             "total_spend_gbp":      round(total_spend, 2),
             "incremental_leads":    round(incr, 1),
-            "roi_leads_per_kgbp":   round(float(roi_mean[i]), 4),
+            "roi_leads_per_kgbp":   round(roi_per_kgbp, 4),
             "cpa_gbp":              round(cpa, 2) if cpa else None,
             "coef_p5":              round(float(roi_p5[i]), 6),
             "coef_p95":             round(float(roi_p95[i]), 6),
@@ -155,7 +157,7 @@ def _extract_and_write(mmm, df_fit: pd.DataFrame, channel_names: list, active: l
     total_media_contrib  = np.zeros(len(y))
     for i, (ch, m) in enumerate(zip(channel_names, active)):
         weekly_spend   = df_fit[m["col"]].fillna(0).values
-        ch_contrib     = roi_mean[i] * weekly_spend / 1_000
+        ch_contrib     = roi_mean[i] * weekly_spend
         contrib[f"{ch}_contrib"] = ch_contrib
         total_media_contrib += ch_contrib
     contrib["baseline"] = expected - total_media_contrib
@@ -170,21 +172,39 @@ def _extract_and_write(mmm, df_fit: pd.DataFrame, channel_names: list, active: l
             by_reach=False,
             confidence_level=0.9,
         )
-        # xarray Dataset with dims (metric, channel, spend_multiplier)
-        # Variable name varies across Meridian versions: try both
         outcome_var = "incremental_outcome" if "incremental_outcome" in rc_ds else "mean"
-        rc_mean = rc_ds[outcome_var].to_dataframe().reset_index()
+        rc_df = rc_ds[outcome_var].to_dataframe().reset_index()
+
+        # rc_df has a 'metric' column with values: mean / ci_hi_90 / ci_lo_90
+        # Pivot to one row per (channel, spend_multiplier) with mean + CI columns
+        metric_col = "metric" if "metric" in rc_df.columns else None
+        if metric_col:
+            rc_pivot = rc_df.pivot_table(
+                index=["channel", "spend_multiplier"],
+                columns=metric_col,
+                values=outcome_var,
+            ).reset_index()
+        else:
+            rc_pivot = rc_df.copy()
+            rc_pivot["mean"] = rc_pivot[outcome_var]
+
+        mean_col  = next((c for c in rc_pivot.columns if "mean" in str(c) and "ci" not in str(c)), outcome_var)
+        ci_lo_col = next((c for c in rc_pivot.columns if "lo"  in str(c)), mean_col)
+        ci_hi_col = next((c for c in rc_pivot.columns if "hi"  in str(c)), mean_col)
+
         rc_rows = []
-        for _, row in rc_mean.iterrows():
-            ch = row.get("channel", row.get("media_channel", ""))
+        for _, row in rc_pivot.iterrows():
+            ch   = str(row.get("channel", row.get("media_channel", "")))
             mult = float(row.get("spend_multiplier", 0))
-            spend_col = f"{ch}_spend"
+            spend_col   = f"{ch}_spend"
             mean_weekly = df_fit[spend_col].fillna(0).mean() if spend_col in df_fit.columns else 0
             rc_rows.append({
                 "channel":           ch,
-                "spend_pct_of_mean": int(mult * 100),
+                "spend_pct_of_mean": int(round(mult * 100)),
                 "weekly_spend_gbp":  round(mean_weekly * mult, 2),
-                "incremental_leads": round(float(row.get(outcome_var, 0)), 4),
+                "incremental_leads": round(float(row[mean_col]),  4),
+                "ci_lo_90":          round(float(row[ci_lo_col]), 4),
+                "ci_hi_90":          round(float(row[ci_hi_col]), 4),
             })
         response_curves_df = pd.DataFrame(rc_rows)
     except Exception as e:
@@ -239,7 +259,7 @@ def _response_curves_approx(channel_names, active, df_fit, roi_mean) -> pd.DataF
                 "channel":           ch,
                 "spend_pct_of_mean": pct,
                 "weekly_spend_gbp":  round(w, 2),
-                "incremental_leads": round(roi_mean[i] * w / 1_000, 4),
+                "incremental_leads": round(roi_mean[i] * w, 4),
             })
     return pd.DataFrame(rows)
 

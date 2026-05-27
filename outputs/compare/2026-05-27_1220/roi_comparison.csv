@@ -1,0 +1,5 @@
+channel,roi_meridian,cpa_meridian,roi_robyn,cpa_robyn,roi_divergence_pct
+bing_ads,0.0024,415092.52,1.0076,992.46,199.0
+google_ads,0.0027,366983.82,0.2466,4054.97,195.7
+meta,0.0008,1312851.76,1.2983,770.22,199.8
+stackadapt,0.0006,1747556.8,1.2604,793.37,199.8
