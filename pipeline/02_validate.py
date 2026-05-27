@@ -218,6 +218,9 @@ def check_outliers(df: pd.DataFrame):
         s = numeric[col].dropna()
         if len(s) < 10:
             continue
+        # Skip binary/flag columns — their rare 1s are expected, not outliers
+        if s.isin([0, 1]).all():
+            continue
         mean, std = s.mean(), s.std()
         if std == 0:
             continue
@@ -323,7 +326,8 @@ def check_structural_breaks(df: pd.DataFrame):
     issues = []
 
     # ── Verify calendar dummies are present ──
-    for col in ("covid_lockdown", "divorce_day"):
+    # is_divorce_day comes from calendar.py; covid_lockdown from 01_data_prep.py
+    for col in ("covid_lockdown", "is_divorce_day"):
         if col not in df.columns:
             issues.append(f"{col} column missing — re-run 01_data_prep.py")
 

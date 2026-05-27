@@ -3,17 +3,29 @@ columns:
   bing_ads_conversions: float64
   bing_ads_impressions: float64
   bing_ads_spend: float64
+  covid_lockdown: int64
+  days_to_easter: int64
   google_ads_clicks: float64
   google_ads_conversions: float64
   google_ads_impressions: float64
   google_ads_spend: float64
+  is_bank_holiday: int64
+  is_december: int64
+  is_divorce_day: int64
+  is_january: int64
   meta_clicks: float64
   meta_conversions: float64
   meta_impressions: float64
   meta_spend: float64
+  month: int64
+  month_cos: float64
+  month_sin: float64
+  precipitation_sum: float64
   quality_leads: float64
-  stackadapt_clicks: float64
-  stackadapt_impressions: float64
+  stackadapt_clicks: int64
+  stackadapt_impressions: int64
   stackadapt_spend: float64
+  temperature_2m_mean: float64
+  week_of_year: int64
 date_end: '2024-12-30'
 date_start: '2020-01-06'

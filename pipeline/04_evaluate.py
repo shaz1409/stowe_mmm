@@ -94,7 +94,7 @@ def compare_roi(roi_tables: dict[str, pd.DataFrame]) -> pd.DataFrame:
         merged = df if merged is None else merged.merge(df, on="channel", how="outer")
 
     if merged is None or len(roi_tables) < 2:
-        return merged or pd.DataFrame()
+        return merged if merged is not None else pd.DataFrame()
 
     models = list(roi_tables.keys())
     m1, m2 = models[0], models[1]
@@ -231,7 +231,19 @@ def main() -> None:
     outdir = os.path.join(COMPARE_DIR, ts)
     os.makedirs(outdir, exist_ok=True)
 
-    model_dirs = {m: _latest_dir(m) for m in MODEL_DIRS}
+    available_models = {}
+    for m in MODEL_DIRS:
+        base   = MODEL_DIRS[m]
+        latest = os.path.join(base, "latest")
+        if os.path.islink(latest) and os.path.exists(latest):
+            available_models[m] = os.path.realpath(latest)
+        else:
+            print(f"  [{m}] no outputs found — skipping (run 03_model.py --model {m} to include)")
+
+    if not available_models:
+        sys.exit("ERROR: no model outputs found. Run 03_model.py first.")
+
+    model_dirs = available_models
     cards      = {m: _load_card(d)  for m, d in model_dirs.items()}
     roi_tables = {m: _load_roi(d)   for m, d in model_dirs.items()}
 

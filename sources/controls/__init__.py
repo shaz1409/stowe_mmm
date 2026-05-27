@@ -23,7 +23,7 @@ def align_to_grain(sources: dict[str, pd.DataFrame | pd.Series], grain: str = TI
         if isinstance(src, pd.Series):
             src = src.to_frame()
 
-        if src.empty:
+        if src.empty or not isinstance(src.index, pd.DatetimeIndex):
             continue
 
         freq = pd.infer_freq(src.index)
@@ -62,15 +62,21 @@ def align_to_grain(sources: dict[str, pd.DataFrame | pd.Series], grain: str = TI
 
 
 def main():
-    sources = {
-        "oecd":          oecd.fetch(),
-        "boe":           boe.fetch(),
-        "ons":           ons.fetch(),
-        "google_trends": google_trends.fetch(),
-        "open_meteo":    weather.fetch_open_meteo(),
-        "land_registry": land_registry.fetch(),
-        "bank_holidays": bank_holidays.fetch(),
-    }
+    _fetchers = [
+        ("oecd",          oecd.fetch),
+        ("boe",           boe.fetch),
+        ("ons",           ons.fetch),
+        ("google_trends", google_trends.fetch),
+        ("open_meteo",    weather.fetch_open_meteo),
+        ("land_registry", land_registry.fetch),
+        ("bank_holidays", bank_holidays.fetch),
+    ]
+    sources = {}
+    for name, fetcher in _fetchers:
+        try:
+            sources[name] = fetcher()
+        except Exception as e:
+            print(f"  [{name}] WARN  {type(e).__name__}: {e} — skipped")
 
     date_range = pd.date_range(DATE_START, DATE_END, freq=TIME_GRAIN)
     sources["calendar"] = calendar.build_calendar_features(date_range)

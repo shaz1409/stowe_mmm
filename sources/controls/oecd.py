@@ -32,12 +32,14 @@ def _fetch_series(dataset: str, series: str, country: str, start: str, end: str)
 
     resp = requests.get(url, params=params, timeout=60)
     if resp.status_code == 404:
-        # Dataset/series combination not available for this country — return empty
         return pd.Series(dtype=float, name=series)
     resp.raise_for_status()
 
     payload = resp.json()
-    observations = payload["dataSets"][0]["observations"]
+    # Guard against API schema changes — stats.oecd.org SDMX format may vary
+    if "dataSets" not in payload or not payload["dataSets"]:
+        return pd.Series(dtype=float, name=series)
+    observations = payload["dataSets"][0].get("observations", {})
     time_values  = payload["structure"]["dimensions"]["observation"][-1]["values"]
 
     # Key format: "dim0_idx:dim1_idx:...:time_idx" — time is last dimension

@@ -60,11 +60,17 @@ def _prepare_df(df: pd.DataFrame, features: dict) -> tuple[pd.DataFrame, list[st
 
     active = [m for m in features.get("media", []) if m["col"] in df_fit.columns]
     spend_cols = [m["col"] for m in active]
-    control_cols = [c for c in features.get("controls", []) if c in df_fit.columns]
 
+    all_ctrl = [c for c in features.get("controls", []) if c in df_fit.columns]
     # Robyn needs no NaN in spend or controls
-    for col in spend_cols + control_cols:
+    for col in spend_cols + all_ctrl:
         df_fit[col] = df_fit[col].fillna(0)
+
+    # Drop zero-variance controls — Robyn raises an error on constant columns
+    control_cols = [c for c in all_ctrl if df_fit[c].std() > 0]
+    dropped = [c for c in all_ctrl if c not in control_cols]
+    if dropped:
+        print(f"  [robyn] Dropped zero-variance controls (constant in fit window): {dropped}")
 
     return df_fit, spend_cols, control_cols
 

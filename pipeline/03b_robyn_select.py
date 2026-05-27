@@ -43,18 +43,22 @@ def _find_csv(base_dir: str, pattern: str, exclude: list[str] | None = None) -> 
 
 
 def _load_pareto_summary(robyn_dir: str) -> pd.DataFrame | None:
-    path = _find_csv(robyn_dir, "pareto_summary")
-    if path is None:
-        path = _find_csv(robyn_dir, "pareto_clusters",
-                         exclude=["detail", "wss", "_ci"])
-    if path is None:
-        return None
-    try:
-        df = pd.read_csv(path)
-        if "solID" in df.columns and "nrmse" in df.columns:
-            return df.sort_values("nrmse").reset_index(drop=True)
-    except Exception:
-        pass
+    # Try in priority order: pre-built summary → clusters → hyperparameters (fallback)
+    candidates = [
+        lambda: _find_csv(robyn_dir, "pareto_summary"),
+        lambda: _find_csv(robyn_dir, "pareto_clusters", exclude=["detail", "wss", "_ci"]),
+        lambda: _find_csv(robyn_dir, "pareto_hyperparameters"),
+    ]
+    for get_path in candidates:
+        path = get_path()
+        if path is None:
+            continue
+        try:
+            df = pd.read_csv(path)
+            if "solID" in df.columns and "nrmse" in df.columns:
+                return df.sort_values("nrmse").reset_index(drop=True)
+        except Exception:
+            pass
     return None
 
 

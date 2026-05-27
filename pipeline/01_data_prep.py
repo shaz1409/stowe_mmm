@@ -59,16 +59,21 @@ def fetch_all_media(
     result: dict[str, pd.DataFrame] = {}
 
     for name, mod_path in MEDIA_MODULE_PATHS:
-        try:
-            mod = importlib.import_module(mod_path)
-        except ImportError as e:
-            print(f"  [{name}] SKIP  missing SDK — {e}")
-            continue
         raw_path = os.path.join(RAW_DIR, f"{name}_raw.csv")
 
         if not refresh and os.path.exists(raw_path):
             print(f"  [{name}] loading from cache  {raw_path}")
             result[name] = pd.read_csv(raw_path, parse_dates=["date"])
+            continue
+
+        try:
+            mod = importlib.import_module(mod_path)
+        except Exception as e:
+            if os.path.exists(raw_path):
+                print(f"  [{name}] SDK unavailable ({type(e).__name__}) — loading from cache {raw_path}")
+                result[name] = pd.read_csv(raw_path, parse_dates=["date"])
+            else:
+                print(f"  [{name}] SKIP  {type(e).__name__}: {e}")
             continue
 
         try:
@@ -192,21 +197,14 @@ def _add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
     # First Monday of January each year
-    divorce_mondays: set = set()
-    for year in range(df.index.min().year, df.index.max().year + 1):
-        jan1 = pd.Timestamp(year, 1, 1)
-        days_ahead = (0 - jan1.weekday()) % 7   # 0 = Monday; 0 if already Monday
-        divorce_mondays.add(jan1 + pd.Timedelta(days=days_ahead))
-    df["divorce_day"] = df.index.isin(divorce_mondays).astype(int)
-
-    # UK COVID lockdowns: first national lockdown → end of main legal restrictions
+    # is_divorce_day is already produced by sources/controls/calendar.py.
+    # Only add covid_lockdown here since calendar.py doesn't cover it.
     df["covid_lockdown"] = (
         (df.index >= "2020-03-23") & (df.index <= "2021-03-08")
     ).astype(int)
 
-    n_divorce = df["divorce_day"].sum()
-    n_covid   = df["covid_lockdown"].sum()
-    print(f"  Calendar dummies: divorce_day={n_divorce} weeks, covid_lockdown={n_covid} weeks")
+    n_covid = df["covid_lockdown"].sum()
+    print(f"  Calendar dummies: covid_lockdown={n_covid} weeks  (is_divorce_day already in controls)")
 
     return df
 

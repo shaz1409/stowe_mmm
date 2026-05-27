@@ -87,7 +87,15 @@ def _build_input_data(df: pd.DataFrame, features: dict):
     )
 
     # ── Controls (optional) ──
-    ctrl_cols = [c for c in features.get("controls", []) if c in df_fit.columns]
+    # Drop any control that has zero variance in the fit window — Meridian rejects
+    # constant columns (e.g. covid_lockdown is always 0 if KPI data starts after 2021).
+    ctrl_cols = [
+        c for c in features.get("controls", [])
+        if c in df_fit.columns and df_fit[c].std() > 0
+    ]
+    dropped = [c for c in features.get("controls", []) if c in df_fit.columns and df_fit[c].std() == 0]
+    if dropped:
+        print(f"  [meridian] Dropped zero-variance controls (constant in fit window): {dropped}")
     if ctrl_cols:
         ctrl_arr = df_fit[ctrl_cols].fillna(df_fit[ctrl_cols].median()).values.astype(float)
         builder.with_controls(ctrl_arr[np.newaxis], ctrl_cols)  # (1, n_times, n_ctrl)
