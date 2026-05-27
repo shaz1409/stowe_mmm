@@ -23,6 +23,9 @@ rpy2            # R bridge for Meta's Robyn (requires R + Robyn R package instal
 # Validation / evaluation
 statsmodels     # VIF, ADF stationarity tests (02_validate.py)
 pyyaml          # schema drift tracking (02_validate.py)
+scikit-learn    # Ridge regression placeholder in models/ (swap for real Meridian/Robyn later)
+matplotlib      # plots in 02_explore.py
+tabulate        # markdown tables in 04_evaluate.py (pandas .to_markdown())
 
 # Export
 # (add as needed once model backends are implemented)

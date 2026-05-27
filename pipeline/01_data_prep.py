@@ -18,7 +18,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from config.dates import DATE_START, DATE_END, TIME_GRAIN
-from sources.media import meta, google_ads, bing_ads, stackadapt, azure_dw
 from sources.controls import main as build_controls
 
 RAW_DIR              = "data/raw"
@@ -27,11 +26,13 @@ CONTROLS_PATH        = os.path.join(PROCESSED_DIR, "control_vars.csv")
 OUTPUT_PATH          = os.path.join(PROCESSED_DIR, "mmm_input.csv")
 CONTROLS_MAX_AGE_SEC = 86_400  # 24 h
 
-MEDIA_MODULES = [
-    ("meta",       meta),
-    ("google_ads", google_ads),
-    ("bing_ads",   bing_ads),
-    ("stackadapt", stackadapt),
+# Lazy-loaded to avoid crashing when an optional platform SDK isn't installed.
+# Channels with missing SDKs are skipped with a warning rather than aborting.
+MEDIA_MODULE_PATHS = [
+    ("meta",       "sources.media.meta"),
+    ("google_ads", "sources.media.google_ads"),
+    ("bing_ads",   "sources.media.bing_ads"),
+    ("stackadapt", "sources.media.stackadapt"),
 ]
 
 # Metrics summed per channel when aggregating to weekly grain.
@@ -52,10 +53,17 @@ def fetch_all_media(
     calling the API. Sources that raise FileNotFoundError or any other exception
     are skipped with a warning so one failure doesn't abort the run.
     """
+    import importlib
+
     os.makedirs(RAW_DIR, exist_ok=True)
     result: dict[str, pd.DataFrame] = {}
 
-    for name, mod in MEDIA_MODULES:
+    for name, mod_path in MEDIA_MODULE_PATHS:
+        try:
+            mod = importlib.import_module(mod_path)
+        except ImportError as e:
+            print(f"  [{name}] SKIP  missing SDK — {e}")
+            continue
         raw_path = os.path.join(RAW_DIR, f"{name}_raw.csv")
 
         if not refresh and os.path.exists(raw_path):
@@ -125,6 +133,8 @@ def fetch_kpi(start: str, end: str) -> pd.DataFrame:
     )
 
     try:
+        import importlib
+        azure_dw = importlib.import_module("sources.media.azure_dw")
         print(f"  [azure_dw] fetching {start} → {end}")
         df = azure_dw.fetch_clef_national(start, end)
         df["date"] = pd.to_datetime(df["date"])
@@ -215,7 +225,7 @@ def build_modelling_table(
     df.index.name = "date"
 
     # ── Column order
-    ch_names     = [ch for ch, _ in MEDIA_MODULES]
+    ch_names     = [ch for ch, _ in MEDIA_MODULE_PATHS]
     media_cols   = sorted(c for c in df.columns if any(c.startswith(f"{ch}_") for ch in ch_names))
     control_cols = [c for c in df.columns if c not in ["quality_leads"] + media_cols]
     ordered      = ["quality_leads"] + media_cols + control_cols

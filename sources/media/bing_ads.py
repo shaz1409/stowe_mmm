@@ -14,9 +14,16 @@ import time
 import zipfile
 import io
 import pandas as pd
-from bingads.service_client import ServiceClient
-from bingads.authorization import AuthorizationData, OAuthWebAuthCodeGrant
-from bingads.v13.reporting import *
+
+# bingads SDK is imported lazily inside functions so the module can be loaded
+# even when the SDK isn't installed (e.g. during dummy-data pipeline runs).
+try:
+    from bingads.service_client import ServiceClient
+    from bingads.authorization import AuthorizationData, OAuthWebAuthCodeGrant
+    from bingads.v13.reporting import *
+    _BINGADS_AVAILABLE = True
+except ImportError:
+    _BINGADS_AVAILABLE = False
 
 # --- Config ------------------------------------------------------------------
 
@@ -205,5 +212,10 @@ def normalise(raw: pd.DataFrame) -> pd.DataFrame:
 
 def fetch(start: str, end: str) -> pd.DataFrame:
     """Entry point called by 01_data_prep.py. Returns normalised daily DataFrame."""
+    if not _BINGADS_AVAILABLE:
+        raise ImportError(
+            "bingads SDK not installed. Run: pip install bingads  "
+            "Or drop a dummy CSV at data/raw/bing_ads_raw.csv and use --no-media-refresh."
+        )
     raw = fetch_campaign_report(start, end)
     return normalise(raw)

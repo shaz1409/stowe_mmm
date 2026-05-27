@@ -1,0 +1,19 @@
+columns:
+  bing_ads_clicks: float64
+  bing_ads_conversions: float64
+  bing_ads_impressions: float64
+  bing_ads_spend: float64
+  google_ads_clicks: float64
+  google_ads_conversions: float64
+  google_ads_impressions: float64
+  google_ads_spend: float64
+  meta_clicks: float64
+  meta_conversions: float64
+  meta_impressions: float64
+  meta_spend: float64
+  quality_leads: float64
+  stackadapt_clicks: float64
+  stackadapt_impressions: float64
+  stackadapt_spend: float64
+date_end: '2024-12-30'
+date_start: '2020-01-06'

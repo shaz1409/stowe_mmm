@@ -1,0 +1,17 @@
+kpi: quality_leads
+date: date
+media:
+- col: bing_ads_spend
+  adstock_theta: 0.4
+  channel_type: ppc
+- col: google_ads_spend
+  adstock_theta: 0.4
+  channel_type: ppc
+- col: meta_spend
+  adstock_theta: 0.52
+  channel_type: social
+- col: stackadapt_spend
+  adstock_theta: 0.5
+  channel_type: display
+controls: []
+dropped: []
